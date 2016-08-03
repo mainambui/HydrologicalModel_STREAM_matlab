@@ -1,0 +1,41 @@
+%This code retries row and columns of a map goven a set of coordinates
+%For use with matlabcode for STREAM model
+%created by Jessie Wells
+%updated by J Maina
+\
+[MASK,~,~,info_mask] = rasterread('input_6_arcs\mask.asc');
+[FLOWACC,~,~,info_flowacc] = rasterread('input_6_arcs\intermediate\flowacc.asc');
+info_mask
+% Note: we are using the flowacc raster only as an example to check the
+% vale stored at a particular row and column. 
+%yulcorner=info_mask.yllcorner+info_mask.cellsize*info_mask.ncols
+
+
+% latVec - as a Vector of values, giving the decimal degrees latitude of TOP (northern) edge of
+% each cell in the raster
+latVec = [info_mask.yllcorner:info_mask.cellsize:info_mask.yllcorner+info_mask.cellsize*info_mask.nrows] %since the info only contains the yll (left lower) not upper corner, first use that to generate the vector.
+latVec=latVec(end:-1:1)  % Reverse the vector, since it should run from top -5.4074 to bottom  -11.0674 of the raster extent
+latVec=latVec(1:3396)  % final set of rows, with the decimal latitude of the TOP edge of each cell (hence deleting the final value which was the bottom of the southernmost cell)
+
+% lonVec - as a Vector of values, giving the decimal degrees longitude of LEFT (western) edge of
+% each cell in the raster
+lonVec = [info_mask.xllcorner:info_mask.cellsize:info_mask.xllcorner+info_mask.cellsize*info_mask.ncols]
+lonVec=lonVec(1:1777)  % final set of columns, (deleting the final value which was the eastern side of the easternmost cell)
+
+
+save('latVec.txt', 'latVec', '-ASCII', '-TABS');
+
+save('lonVec.txt', 'lonVec', '-ASCII', '-TABS');
+
+image(MASK)
+image(FLOWACC)
+
+
+RowCount = sum(latVec>-8.782607666)
+ColCount = sum(lonVec<34.37688916)
+FLOWACC(RowCount,ColCount)
+
+	
+RowCount = sum(latVec>-7.908543173)
+ColCount = sum(lonVec<35.79876219)
+
