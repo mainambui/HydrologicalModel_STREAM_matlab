@@ -1,0 +1,107 @@
+%data preprocessing
+% SECTION 1: IMPORT DATA AND SET THE ENVIRONMENT
+
+% Add the path to the stream folder:
+addpath('/Volumes/NO NAME/STREAM_Tanzania/')
+addpath('/Volumes/NO NAME/STREAM_Tanzania/TopoToolbox-2')
+
+%% import netcdf
+finfo = ncinfo('input_6_arcs/TEMP/T85.nc');
+lat = ncread('input_6_arcs/TEMP/T85.nc','latitude');
+lon = ncread('input_6_arcs/TEMP/T85.nc','longitude');
+data = ncread('input_6_arcs/TEMP/T85.nc','variable');
+time = ncread('input_6_arcs/TEMP/T85.nc','z');
+data2 = squeeze(data);
+%everything has to rotate 90dgr coutnerclockwise and minus 273.15 for
+%Kelvin
+TMP = NaN(399,237,5829);%2192
+for i = 1:5829 %2192
+    a=data2(:,:,i);
+    b=rot90(a); %for flipping
+    b=flipud(b);
+    c=b-273.15; %to celcius
+    d=kron(c,ones(132,132)); %towards 12 seconds so 1/5 of a minute
+    e=d(89:2083,188:1372); %clipping out the right rows/columsn (still in 12 seconds)
+    kr = 5; kc=5; %these three lines make the 12 seconds into 1 minute (like aggregate in arcgis)
+    [m, n] = size(e); mk = m/kr; nk = n/kc; % Size of input and result
+    f = reshape(sum(reshape(reshape(sum(reshape(e,kr,[])),mk,[]).',kc,[])),nk,mk).'/(kr*kc);
+    TMP(:,:,i)=f;
+end
+% ff = TMP(:,:,1)
+% imagesc(ff)
+
+%% import precipitation netcdf
+finfo= ncinfo('input_6_arcs/PRE/P85.nc')
+lat = ncread('input_6_arcs/PRE/P85.nc','latitude');
+lon = ncread('input_6_arcs/PRE/P85.nc','longitude');
+data = ncread('input_6_arcs/PRE/P85.nc','variable');
+time = ncread('input_6_arcs/PRE/P85.nc','z');
+data2 = squeeze(data);
+
+PRE = NaN(399,237,5829);%5584
+for i = 1:5829
+    a=data2(:,:,i);
+    b=rot90(a); %for flipping
+    c=flipud(b);
+    c=c*86400;%convert per sec to daily sum
+    d=kron(c,ones(132,132)); %towards 12 seconds so 1/5 of a minute
+    e=d(89:2083,188:1372); %clipping out the right rows/columsn (still in 12 seconds)
+    kr = 5; kc=5; %these three lines make the 12 seconds into 1 minute (like aggregate in arcgis)
+    [m, n] = size(e); mk = m/kr; nk = n/kc; % Size of input and result
+    f = reshape(sum(reshape(reshape(sum(reshape(e,kr,[])),mk,[]).',kc,[])),nk,mk).'/(kr*kc);
+    PRE(:,:,i)=f;
+end
+
+clear data2 data
+%create monthly averages from daily data
+%numbering1 = xlsread('NumberingMaina_Future.xlsx','B1:E5830');
+% Getting month breaks by detecting changes in days
+%day=numbering1(:,1); % Day column from Excel
+%final_idx = find(diff(day)~=1);
+%initial_idx = [1 ; final_idx(1:end-1)+1];
+%initial_idx = [1 ; final_idx(1:end-1)];
+%Number of months
+%nom = length(final_idx);
+% Pre-allocating space for monthly mean
+%monthlymeans = nan(399,237,nom);
+%Calculating means and sums for temp and ppt respectively
+%for ii=1:nom
+%    PREMN(:,:,ii) = nansum(PRE(:,:,initial_idx(ii):final_idx(ii)),3);
+%   TMPMN(:,:,ii) = nanmean(TMP(:,:,initial_idx(ii):final_idx(ii)),3);
+%end
+
+%save TMP2015_2020.mat TMP %is in 1 minute resolution
+save('TMP852015_2030.mat','TMP','-v7.3'); 
+%save PRE2015_2020.mat PRE %is in 1 minute resolution
+save('PRE852015_2030.mat','PRE','-v7.3');
+
+clear PRE TMP
+
+%% Calculate HEAT and A maps
+load TMP852015_2030.mat
+[r, c, t] = size(TMP);
+HEAT = zeros(r,c);
+
+%create monthly averages
+numbering = xlsread('NumberingMaina.xlsx','B12419:E18247');
+month=numbering(:,3);
+year=numbering(:,4);
+years=unique(year);
+for m = 1:12 % 12 months
+    m_log = month == m;
+    SOM_TMP = zeros(r,c);
+    for y = 1:length(years) % all years in dataset
+        yr = years(y);
+        yr_log = year == yr;
+        total_log = logical(yr_log.*m_log);
+        data = TMP(:,:,total_log);
+        SOM_TMP = SOM_TMP + nanmean(data,3);
+    end
+    AVG_TMP = SOM_TMP ./ y;
+    AVG_TMP(AVG_TMP<0)=0; % Negative values can not be calculated to the power of 1.514
+    HEAT = HEAT + (AVG_TMP./5).^1.514;
+end
+A = 0.49239 + 0.01792.*HEAT - 0.0000771771*HEAT.^2 + 0.000000675.*HEAT.^3;
+save HEAT_A_F85.mat HEAT A    
+
+
