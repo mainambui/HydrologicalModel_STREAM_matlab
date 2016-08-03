@@ -1,0 +1,248 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%SECTION 1: STREAM MODEL SETUP
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+addpath('E:\1_Spatial_Data_Tanzania\Tanzania_STREAM\')
+addpath('E:\1_Spatial_Data_Tanzania\Tanzania_STREAM\TopoToolbox-2')
+
+fprintf('STREAM (Aerts, 1999)\n')
+fprintf('Modified and Converted to MATLAB by Hylke Beck\n')
+fprintf('Modified by Hans de Moel\n')
+fprintf('Adjusted for Colorado by Hans de Moel\n')
+fprintf('Adjusted for Tanzania by Joseph Maina\n'
+ 
+% Clear workspace.
+clear
+ 
+% Disable warnings.
+warning off MATLAB:MKDIR:DirectoryExists;
+ 
+% Parameters, directories, and files
+DischargePoints=[2026 648; 1715 1121; 2075 334; 1501 1501; 1567 1490; 1429 1453; 1259 1295; 1775 1222; 1385 961; 1819 548; 2108 408; 2094 489; 2064 526; 2330 922]
+    % 14 monitoring stations, 13 in Great Ruaha basin and 1 in Kilombero
+    % basin. Note that the 4th station is at row 1501, col 1501, this was
+    % double-checked and the identical values are not a mistake.
+    % Previous set of 'preliminary' discharge points that were used in May 2015 before full hydrological database was available :  [2107 406; 2093 488; 2066 527; 2027 647; 1692 936; 1370 970; 1504 1498; 1427 1447; 2027 647]; % tanzania in row/column 
+    % 1385 961 is the calibration point
+    %1KA11A_Mbarali_Igawa	1KA15A_Ndembera_Ilongo	1KA16A_Lunwa_Igurusi	1KA21A_LittleRuaha_Ihimbu	1KA22_Mtitu_Mtitu	1KA2A_LittleRuaha_Nduika	1KA31_LittleRuaha_Mawande	1KA32A_LittleRuaha_Makalala	1KA59_GreatRuaha_Msembe	1KA71_GreatRuaha_Nyaluhanga	1KA7A_Chimala_Chitekelo	1KA8A_GreatRuaha_Salimwani	1KA9_Kimani_GNR	Kilombero_1KB18B_Ruhudji_Ruhuji_KifungaFalls
+   
+PIXELSIZE = 184.7955;  %in m. 
+TIMESTEP = 24*3600; % in sec - daily timestep
+
+diroutput='E:\1_Spatial_Data_Tanzania\Tanzania_STREAM\output\';
+ 
+% Start and end time of iteration
+timestart=1; % Jan 1981
+timeend=12417; Dec 2014
+fprintf('Start time is %d, end time is %d...\n', timestart,timestart);
+ 
+
+%%%% Set calibration parameters
+HEATcal = 1.0; 
+WHOLDNcal = 1.0; % water holding capacity
+MELTcal = 10; % Snow mrlt
+CROPFcal = 3.2; % crop factor
+TOGWcal = 0.25; % groud water
+Ccal = 40; % slope factor
+
+%%%%%%%%%%%
+% load land use and other input files
+disp('Load input files...');
+[C X Y] = rasterread('input_6_arcs\cmap.asc');
+[CROPF1] = rasterread('input_6_arcs\crf1980.asc'); %for 1981-1989 (1-3287)
+CROPF1 = CROPF1./100;
+[CROPF2] = rasterread('input_6_arcs\crf1990.asc'); %for 1990-1999 (3288-6939)
+CROPF2 = CROPF2./100; 
+[CROPF3] = rasterread('input_6_arcs\crf2000.asc'); %for 2000-2007 (6940-9861)
+CROPF3 = CROPF3./100; 
+[CROPF4] = rasterread('input_6_arcs\crf2010.asc'); %for 2008-2011 (9862-11322)
+CROPF4 = CROPF4./100; 
+[CROPF5] = rasterread('input_6_arcs\crf2014.asc'); %for 2012-2014 (11323-12417
+CROPF5 = CROPF5./100; 
+[WHOLDN] = rasterread('input_6_arcs\wholdn.asc');
+WHOLDN(isnan(WHOLDN))=75;
+[DEM] = rasterread('input_6_arcs\dem.asc');
+[MASK] = rasterread('input_6_arcs\mask.asc');
+load('HEAT_A_8114Day.mat');
+HEAT = kron(HEAT,ones(10,10));
+HEAT = HEAT(295:3690,301:2077);
+A = kron(A,ones(10,10));
+A = A(295:3690,301:2077);
+
+load('E:\1_Spatial_Data_Tanzania\Tanzania_STREAM\output\InitMaps.mat'); %dummy maps for snow, groundwater, soilstorage and apwl for the first iteration HEAT_A.mat'
+
+%%Creation of dummy maps.First time, run a couple of years (or entire series) like this.
+%%Make sure InitMaps.mat is saved at the end of the script. Then turn off these four lines with the %-sign,
+%%and turn on the line above 
+
+%APWL = ones(size(WHOLDN));
+%GW = ones(size(WHOLDN));
+%SNOW = ones(size(WHOLDN));
+%SOILSTOR = ones(size(WHOLDN)); 
+WHOLDN = WHOLDN * WHOLDNcal;
+HEAT   = HEAT * HEATcal;
+DSCHRG=zeros(size(A));
+ 
+% Load climate data
+load('TMP1981_2014Day.mat');
+load('PRE1981_2014Day.mat');
+TMP_ALL = TMP;
+PRE_ALL = PRE;
+
+clear TMP
+clear PRE
+
+%Topotoolbox 2 pre-routing
+tic
+DEM2 = GRIDobj(X,Y,DEM);
+DEM2 = fillsinks(DEM2);
+FD = FLOWobj(DEM2);
+toc 
+%%%%%%%%%%%%%%%%%%%%%
+%%% Start iteration
+%%%%%%%%%%%%%%%%%%%%%
+disp('Starting iteration...');
+
+tic
+for i=timestart:timeend
+    fprintf('Time step %d of %d...\n', i-timestart+1,timeend-timestart+1);
+    
+    %Load correct CROPF data depending on year
+     if i <= 3287 
+        CROPF = CROPF1;
+    elseif i >3288 && i <=6939
+        CROPF = CROPF2;
+    elseif i >6940 && i<=9861
+        CROPF = CROPF3;
+    elseif i >9862 && i<=11322
+        CROPF = CROPF4;
+    else
+        CROPF = CROPF5;
+    end
+    
+    %Reading climate scenario data...
+    PRE=PRE_ALL(:,:,i);
+    PRE = kron(PRE,ones(10,10));
+    TMP=TMP_ALL(:,:,i);
+    TMP = kron(TMP,ones(10,10));
+    
+    %set the extent to equal DEM and other maps (3 arcseconds)
+    TMP = TMP(295:3690,301:2077);%(263:4252,300:2669)
+    PRE = PRE(295:3690,301:2077);
+    
+    %Calculating snow fall, snow cover storage and snow melt...
+    SNOWFALL=PRE;
+    SNOWFALL(TMP>3)=0; % At low temperatures, precipitation is snow
+    SNOW=SNOW+SNOWFALL;
+    MELT=(1/30)*MELTcal*TMP; % Snow will melt at high temperatures
+    MELT(TMP<3)=0;
+    MELT2 = min(SNOW,MELT);
+    SNOW=SNOW-MELT2;
+    PRE = PRE - SNOWFALL + MELT2;
+       
+    %Calculate potential evapotranspiration using Thornthwaite 
+    PE=NaN(size(TMP));
+    PE(TMP<26.5)=16*((10*(TMP(TMP<26.5)./HEAT(TMP<26.5))).^A(TMP<26.5));
+    PE(TMP>=26.5)=-415.85+(32.24*TMP(TMP>=26.5))-(0.43*(TMP(TMP>=26.5).^2));    
+    PE(TMP<=0)=0;
+    PE=PE/30;
+    PE=PE.*CROPF.*CROPFcal;
+ 
+    %Calculate soil storage according to Thornthwaite-Mather ...
+     PEFF=PRE-PE;
+    APWL_1 = APWL; %available water in last interation
+    EXCESS = zeros(size(PEFF));
+    %Soil is wetting below capacity
+    below_cap = (APWL_1 + PEFF) <= WHOLDN;
+    APWL(below_cap) = APWL_1(below_cap) + PEFF(below_cap);
+    EXCESS(below_cap) = 0;
+    %Soil is wetting above capacity
+    above_cap = (APWL_1 + PEFF) > WHOLDN;
+    EXCESS(above_cap) = APWL_1(above_cap) + PEFF(above_cap) - WHOLDN(above_cap);
+    APWL(above_cap) = WHOLDN(above_cap);
+    %Soil is drying   
+    APWL(PEFF<=0) = APWL_1(PEFF<=0).*exp(PEFF(PEFF<=0)./WHOLDN(PEFF<=0));
+    EXCESS(PEFF<=0) = 0;
+ 
+    %Separate direct from delayed runoff (seepage to groundwater)...
+    RUNOFF=TOGWcal*EXCESS;
+    TOGW=EXCESS-RUNOFF;
+ 
+    %Calculate volume of groundwater and baseflow... 
+    GW=GW+TOGW;
+    SLOFLO=GW./(C*Ccal);
+    GW=GW-SLOFLO;
+ 
+    %Calculate discharge (snow melt + runoff + baseflow),
+    %and create map of total monthly discharge per cel...
+    DSCHRG=RUNOFF+SLOFLO; %%%%%DSCHRG+RUNOFF+SLOFLO; voor dagbasis
+ 
+    %Recalculate mm -> m^3; accumulate discharge and calculate m^3/sec
+    DSCHRG=(DSCHRG./1000).*PIXELSIZE.*PIXELSIZE; % conversion from mm to m^3
+    
+    %Accumulate discharge from above lying cels (in mm and in m3/sec),
+%     Q = flowacc_lm(DEM,DSCHRG,'type','single'); %flowacc_lm is functie uit TopoToolbox
+    Q1 = flowacc(FD,DSCHRG);            %Q flowing through in 1 interation
+    Q2 = GRIDobj2mat(Q1);   
+    Qsec = Q2./TIMESTEP; % conversion from m^3 to m^3/sec
+ 
+    %Summarize (give max, min and average) 
+    mkdir('output');
+    PEbasin=PE(MASK==1);
+    timeseriesPE(i,1)=i;
+    timeseriesPE(i,2)=min(PEbasin);
+    timeseriesPE(i,3)=max(PEbasin);
+    timeseriesPE(i,4)=mean(PEbasin);
+    GWbasin=GW(MASK==1);
+    timeseriesGW(i,1)=i;
+    timeseriesGW(i,2)=min(GWbasin);
+    timeseriesGW(i,3)=max(GWbasin);
+    timeseriesGW(i,4)=mean(GWbasin);
+    SNOWbasin=SNOW(MASK==1);
+    timeseriesSNOW(i,1)=i;
+    timeseriesSNOW(i,2)=min(SNOWbasin);
+    timeseriesSNOW(i,3)=max(SNOWbasin);
+    timeseriesSNOW(i,4)=mean(SNOWbasin);
+    TMPbasin=TMP(MASK==1);
+    timeseriesTMP(i,1)=i;
+    timeseriesTMP(i,2)=min(TMPbasin);
+    timeseriesTMP(i,3)=max(TMPbasin);
+    timeseriesTMP(i,4)=mean(TMPbasin);
+    PREbasin=PRE(MASK==1);
+    timeseriesPRE(i,1)=i;
+    timeseriesPRE(i,2)=min(PREbasin);
+    timeseriesPRE(i,3)=max(PREbasin);
+    timeseriesPRE(i,4)=mean(PREbasin);
+    Qsecbasin=Qsec(MASK==0);
+    %timeseriesQsec(i,1)=i;
+    %timeseriesQsec(i,2)=min(Qsecbasin);
+    %timeseriesQsec(i,3)=max(Qsecbasin);
+    %timeseriesQsec(i,4)=mean(Qsecbasin);
+    for j=1:size(DischargePoints,1)
+        timeseriesDISQSEC(i-timestart+1,1)=i;
+        timeseriesDISQSEC(i-timestart+1,1+j)=Qsec(DischargePoints(j,1),DischargePoints(j,2));
+    end
+    
+    %Export init-maps and discharge map
+    %Put a %-sign in front of the first line below after you run it with the dummy maps. 
+    %This turns it off so they will not be overwritten in your next runs. 
+    save(['E:\1_Spatial_Data_Tanzania\Tanzania_STREAM\output\' 'InitMaps'], 'APWL', 'GW', 'SNOW', 'SOILSTOR'); 
+    save(['E:\1_Spatial_Data_Tanzania\Tanzania_STREAM\output\' 'DISCHARGEMAP'], 'Qsec');
+    
+end
+% End of iteration.
+toc 
+% Save timeseries to txt file
+disp('Saving timeseries of PE, SNOW, TMP, PRE, and DISQSEC to disk...');
+save([diroutput 'timeseriesPE.txt'], 'timeseriesPE', '-ASCII', '-TABS');
+save([diroutput 'timeseriesSNOW.txt'], 'timeseriesSNOW', '-ASCII', '-TABS');
+save([diroutput 'timeseriesTMP.txt'], 'timeseriesTMP', '-ASCII', '-TABS');
+save([diroutput 'timeseriesPRE.txt'], 'timeseriesPRE', '-ASCII', '-TABS');
+save([diroutput 'timeseriesDISQSEC.txt'], 'timeseriesDISQSEC', '-ASCII', '-TABS');
+ToPaste = timeseriesDISQSEC(13:end,2);
+ 
+%% Export maps in ArcGIS ascii format
+rasterwrite([diroutput 'Qsec.asc'],X,Y,Qsec);
+%rasterwrite([diroutput 'Rows.asc'],X,Y,rows);
+%rasterwrite([diroutput 'Columns.asc'],X,Y,columns);
+
