@@ -1,5 +1,5 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%SECTION 1: STREAM MODEL SETUP
+%%SECTION 2: STREAM MODEL SETUP
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 addpath('E:\1_Spatial_Data_Tanzania\Tanzania_STREAM\')
